@@ -14,11 +14,11 @@ In this exercise, previous code is used and placed into a real-time scheduler, a
 tasks, all carrying out different functions to make up a final finished code. Carrying out portions of each task with small time intervals between each gives the user the impression that each task is carried out simultaneously. 
 The 2 tasks carried out by the program is the running and control of 2 separate DC motors. Each task can drive the motor, measure its position, run a controller, and display the results. Using multitasking, this can be accomplished for each motor.
 
-Recorded below is an initial plot of a step response of a single motor, with a standard gain value, K_p = 0.15 and desired final position of 16,384 ticks, corresponding to one revolution. 
+Recorded below is an initial plot of a step response of a single motor, with a standard gain value, K_p = 0.10 and desired final position of 16,384 ticks, corresponding to one revolution. 
 
 ![T = .10ms Step Response](./images/10ms.png)
 
-Figure 3.1. Motor step response with gain value, K_p = 0.15 and task period t = 10 ms. The best we were able to have the 
+Figure 3.1. Motor step response with gain value, K_p = 0.10 and task period t = 10 ms. The best we were able to have the 
 motor reach the setpoint without excessive oscillation or overshoot. 
 
 
