@@ -1,15 +1,18 @@
-"""!
-@file basic_tasks.py
-    This file contains a demonstration program that runs some tasks, an
-    inter-task shared variable, and a queue. The tasks don't really @b do
-    anything; the example just shows how these elements are created and run.
-
-@author JR Ridgely
-@date   2021-Dec-15 JRR Created from the remains of previous example
-@copyright (c) 2015-2021 by JR Ridgely and released under the GNU
-    Public License, Version 2. 
+"""!@file main.py
+@brief      Runs two motor step responses simultaneously.
+@details    Using cooperative multi-tasking code provided by Dr. Ridgely, this 
+            file is able to run two separate motor step responses with different
+            periods. The tasks are set up as functions and then are periodically
+            called by the cotask.py file to run. This can be done with multiple
+            tasks in reason, as with more tasks with short periods there may be
+            too much overlap for the functions to run at their allotted time.
+@author     Nathan Dodd
+@author     Lewis Kanagy
+@author     Sean Wahl
+@date       February 14, 2023
 """
 
+# Import the necessary modules
 import gc
 import pyb
 import cotask
@@ -20,30 +23,21 @@ from encoder_reader import encoder
 from controller import CLController
 
 
+# Motor step response controller 1.
 def CLC_fun1(shares):
     """!
     Task which puts things into a share and a queue.
     @param shares A list holding the share and queue used by this task
     """
-    ## An initializing state in which the motor, encoder, controller, and serial port are set up.
+    ## An initializing state in which the motor, encoder, controller.
     S0_INIT           = 0
-    ## A user input state in which a controller setpoint is taken.
-    S1_INPUT_SETPOINT = 1
-    ## A user input state in which a proportional gain value is taken.
-    S2_INPUT_KP       = 2
     ## A state which runs the step response on the motor.
-    S3_RUN            = 3
-    ## A state in which the data recorded in the run state is transmitted through a UART to a 
-    #  secondary virtual COM port for plotting purposes.
-    S4_PRINT          = 4
+    S1_RUN            = 3
+    ## A state in which the controller does nothing and waits for the user to exit.
+    S2_END            = 4
     
     ## The state the program is currently running in.
     state = S0_INIT
-    
-    ## A list of time data taken during the step response.
-    times = []
-    ## A list of encoder readings (in ticks) taken during the step response.
-    thetas = []
     
     while True:
         
@@ -55,122 +49,91 @@ def CLC_fun1(shares):
                 ## An encoder object to measure the motor's shaft position (in ticks)
                 my_encoder = encoder(pyb.Pin.board.PC6, pyb.Pin.board.PC7, 8)
                 ## A controller object to perfrom closed loop control on the motor using the encoder.
-                my_controller = CLController(.10, 163840)
+                my_controller = CLController(.10, 16384)
+                
+                fun1_done.put(False)
             
-                ## A UART object for transmitting data through the serial port.
-                u2 = pyb.UART(2, baudrate=115200)
-                state = S3_RUN
+                state = S1_RUN
                 yield None
                 my_encoder.zero()
-                t_init = ticks_us()
                 ## Index to tell the program when to stop
                 idx = 0
                 
-        if state == S3_RUN:
+        if state == S1_RUN:
             
-            if idx < 300:
+            # Run 500 times (500 because this task runs on a 10ms period, leading to 5s total)
+            if idx < 500:
                 ## The current encoder reading in ticks.
                 theta = my_encoder.read_encoder()
                 my_motor.set_duty_cycle(my_controller.run(theta))
-                times.append(ticks_diff(ticks_us(), t_init)/1_000)
-                thetas.append(theta)
                 idx += 1
                 yield None
             
             else:
-               my_motor.set_duty_cycle(0)
-               state = S4_PRINT
-               yield None
+                # Turn off the motor and transition to the end state
+                my_motor.set_duty_cycle(0)
+                state = S2_END
+                yield None
             
-        if state == S4_PRINT:
-            # Send the recorded times and thetas through the serial port secondary receival.
-            
-            #for idx in range(len(times)):
-            #    u2.write(f"{times[idx]}, {thetas[idx]}\r\n")
-            #u2.write('done\r\n')
-            #print('done')
-            
-            # Reset the data lists.
-            #times = []
-            #thetas = []
-            #state = S1_INPUT_SETPOINT
+        if state == S2_END:
+            # Put that this function is done in this share
+            fun1_done.put(True)
             yield None
 
-
+# Motor step response controller 2.
 def CLC_fun2(shares):
-        """!
-        Task which puts things into a share and a queue.
-        @param shares A list holding the share and queue used by this task
-        """
-        ## An initializing state in which the motor, encoder, controller, and serial port are set up.
-        S0_INIT           = 0
-        ## A user input state in which a controller setpoint is taken.
-        S1_INPUT_SETPOINT = 1
-        ## A user input state in which a proportional gain value is taken.
-        S2_INPUT_KP       = 2
-        ## A state which runs the step response on the motor.
-        S3_RUN            = 3
-        ## A state in which the data recorded in the run state is transmitted through a UART to a 
-        #  secondary virtual COM port for plotting purposes.
-        S4_PRINT          = 4
+    """!
+    Task which puts things into a share and a queue.
+    @param shares A list holding the share and queue used by this task
+    """
+    ## An initializing state in which the motor, encoder, controller.
+    S0_INIT = 0
+    ## A state which runs the step response on the motor.
+    S1_RUN  = 1
+    ## A state in which the controller does nothing and waits for the user to exit.
+    S2_END  = 2
+    
+    ## The state the program is currently running in.
+    state = S0_INIT
+    
+    while True:
         
-        ## The state the program is currently running in.
-        state = S0_INIT
-        
-        ## A list of time data taken during the step response.
-        times = []
-        ## A list of encoder readings (in ticks) taken during the step response.
-        thetas = []
-        
-        while True:
+        if state == S0_INIT:
+            # Intialize the necessary hardware/software objects for this file.
             
-            if state == S0_INIT:
-                    # Intialize the necessary hardware/software objects for this file.
-                    
-                    ## A motor object to control duty cycles.
-                    my_motor = MotorDriver(pyb.Pin.board.PC1, pyb.Pin.board.PA0, pyb.Pin.board.PA1, 5)
-                    ## An encoder object to measure the motor's shaft position (in ticks)
-                    my_encoder = encoder(pyb.Pin.board.PB6, pyb.Pin.board.PB7, 4)
-                    ## A controller object to perfrom closed loop control on the motor using the encoder.
-                    my_controller = CLController(.10, 256*4*16)
-                    ## A UART object for transmitting data through the serial port.
-                    u2 = pyb.UART(2, baudrate=115200)
-                    state = S3_RUN
-                    yield None
-                    my_encoder.zero()
-                    t_init = ticks_us()
-                    ## Index to tell the program when to stop
-                    idx = 0
-                    
-            if state == S3_RUN:
+            ## A motor object to control duty cycles.
+            my_motor = MotorDriver(pyb.Pin.board.PC1, pyb.Pin.board.PA0, pyb.Pin.board.PA1, 5)
+            ## An encoder object to measure the motor's shaft position (in ticks)
+            my_encoder = encoder(pyb.Pin.board.PB6, pyb.Pin.board.PB7, 4)
+            ## A controller object to perfrom closed loop control on the motor using the encoder.
+            my_controller = CLController(.10, 16384)
+            
+            state = S1_RUN
+            yield None
+            my_encoder.zero()
+            ## Index to tell the program when to stop
+            idx = 0
                 
-                if idx < 300:
-                    ## The current encoder reading in ticks.
-                    theta = my_encoder.read_encoder()
-                    my_motor.set_duty_cycle(my_controller.run(theta))
-                    times.append(ticks_diff(ticks_us(), t_init)/1_000)
-                    thetas.append(theta)
-                    idx += 1
-                    yield None
-                
-                else:
-                   my_motor.set_duty_cycle(0)
-                   state = S4_PRINT
-                   yield None
-                
-            if state == S4_PRINT:
-                # Send the recorded times and thetas through the serial port secondary receival.
-                
-                #for idx in range(len(times)):
-                #   u2.write(f"{times[idx]}, {thetas[idx]}\r\n")
-                #u2.write('done\r\n')
-                #print('done')
-                
-                # Reset the data lists.
-                #times = []
-                #thetas = []
-                #state = S1_INPUT_SETPOINT
+        if state == S1_RUN:
+            
+            # Run 100 times (100 because this task runs on a 50 ms period, leading to 5s total)
+            if idx < 100:
+                ## The current encoder reading in ticks.
+                theta = my_encoder.read_encoder()
+                my_motor.set_duty_cycle(my_controller.run(theta))
+                idx += 1
                 yield None
+            
+            else:
+                # Turn off the motor and transition to the end state   
+                my_motor.set_duty_cycle(0)
+                state = S2_END
+                yield None
+            
+        if state == S2_END:
+            # Put that this function is done in this share
+            fun2_done.put(True)
+            yield None
 
 
 # This code creates a share, a queue, and two tasks, then starts the tasks. The
@@ -180,16 +143,16 @@ if __name__ == "__main__":
     print("Enjoy the motors.\r\n")
 
     # Create a share and a queue to test function and diagnostic printouts
-    share0 = task_share.Share('h', thread_protect=False, name="Share 0")
-    q0 = task_share.Queue('L', 16, thread_protect=False, overwrite=False,
-                          name="Queue 0")
+    fun1_done = task_share.Share('b', thread_protect=False, name="Share 0")
+    fun2_done = task_share.Share('b', thread_protect=False, name="Share 1")
+    
 
     # Create the tasks. If trace is enabled for any task, memory will be
     # allocated for state transition tracing, and the application will run out
     # of memory after a while and quit. Therefore, use tracing only for 
     # debugging and set trace to False when it's not needed
-    task1 = cotask.Task(CLC_fun1, name="Task_1", priority=1, period=10, shares = (share0, q0))
-    task2 = cotask.Task(CLC_fun2, name="Task_2", priority=2, period=10, shares = (share0, q0))
+    task1 = cotask.Task(CLC_fun1, name="Task_1", priority=1, period=10, shares = (fun1_done))
+    task2 = cotask.Task(CLC_fun2, name="Task_2", priority=2, period=50, shares = (fun2_done))
     cotask.task_list.append(task1)
     cotask.task_list.append(task2)
 
@@ -197,15 +160,15 @@ if __name__ == "__main__":
     # possible before the real-time scheduler is started
     gc.collect()
 
-    # Run the scheduler with the chosen scheduling algorithm. Quit if ^C pressed
+    # Run the scheduler with the chosen scheduling algorithm. Quit if ^C pressed or
+    # if both motor step responses have finished.
     while True:
         try:
             cotask.task_list.pri_sched()
+            if fun1_done.get() == True and fun2_done.get() == True:
+                break
         except KeyboardInterrupt:
             break
 
-    # Print a table of task data and a table of shared information data
-    print('\n' + str (cotask.task_list))
-    print(task_share.show_all())
-    print(task1.get_trace())
-    print('')
+    # Print message for leaving program
+    print('Bye bye.')
